@@ -1,10 +1,7 @@
 import axios from "axios";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Cookies from "js-cookie";
 import { useNavigate } from "react-router-dom";
-
-// import Dashboard from "./Dashboard";
-// import F from "./new";
 
 interface Login {
   mobile_no: string;
@@ -20,45 +17,58 @@ interface Sign {
 const apiUrl = import.meta.env.VITE_API_URL;
 
 function AuthForm() {
+  //States
+
   const [isLogin, setIsLogin] = useState(true);
+
   const [Data, setData] = useState<Login>({ mobile_no: "", otp: "" });
   const [isSingup, setisSingup] = useState<Sign>({
     full_name: "",
     mobile_no: "",
     email: "",
   });
-  const [otpStatus, setOtpStatus] = useState<{
-    mobile_no: string;
-    otp?: string;
-  }>({ mobile_no: "", otp: "" });
-  const [otpVerification, setOtpVerification] = useState<{
-    email_otp: string;
-    mobile_otp: string;
-  }>({ email_otp: "", mobile_otp: "" });
+  const [otpVerification, setOtpVerification] = useState({
+    email_otp: "",
+    mobile_otp: "",
+  });
+  const [otpStatus, setOtpStatus] = useState({ mobile_no: "", otp: "" });
   const [isSignupSuccess, setIsSignupSuccess] = useState(false);
   const [showinput, setshowInput] = useState(false);
-  // const [status, setStatus] = useState<string>(""); // 🔥 Create a state to store status
+  const [counter, setCounter] = useState(0);
+  const [isResendDisabled, setIsResendDisabled] = useState(true);
+
+  // OnChange Event
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
-
   const handleChangeOtp = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setOtpStatus((prev) => ({ ...prev, [name]: value }));
   };
-
   const handleChangeOtpverifi = (e: React.ChangeEvent<HTMLInputElement>) => {
     setOtpVerification((prev) => ({
       ...prev,
       [e.target.name]: e.target.value,
     }));
   };
-
   const handleChangeSign = (e: React.ChangeEvent<HTMLInputElement>) => {
     setisSingup((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
+  //Timer Functionality
+  useEffect(() => {
+    let timer;
+    if (counter > 0) {
+      timer = setTimeout(() => {
+        setCounter((prev) => prev - 1);
+      }, 1000);
+    } else if (counter === 0) {
+      setIsResendDisabled(false);
+    }
+    console.log(timer);
+  }, [counter]);
 
+  //API Call
   const handleSendOtp = async () => {
     try {
       const mobileNumber = isLogin ? Data.mobile_no : isSingup.mobile_no;
@@ -67,50 +77,56 @@ function AuthForm() {
       });
       console.log("OTP sent successfully! Response:", response.data);
       setshowInput(true);
+
+      // Start timer
+      setIsResendDisabled(true);
+      setCounter(5); // 30 seconds
     } catch (err) {
       console.error("Failed to send OTP:", err);
     }
   };
+
   const navigate = useNavigate();
   const handleSubmit = async () => {
     try {
       if (isLogin) {
-        const response = await axios.post(`${apiUrl}/posp/login`, {
-          mobile_no: Data.mobile_no,
-          otp: otpStatus.otp,
-        });
-        console.log(response.data, "hii");
-        //  Store token in cookies
+        const response = await axios.post(
+          `${apiUrl}/posp/login`,
+          {
+            mobile_no: Data.mobile_no,
+            otp: otpStatus.otp,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${Cookies.get("token")}`,
+            },
+          }
+        );
+
+        // Store token in cookies
         Cookies.set("token", response.data.accesstoken, { expires: 7 });
 
-        //  Store posp_id and accesstoken in localStorage
+        // Store posp_id and accesstoken in localStorage
         localStorage.setItem("posp_id", response.data.posp_id);
         localStorage.setItem("data", JSON.stringify(response.data));
 
-        //  Clear input fields
+        // Clear input fields
         setData({ mobile_no: "", otp: "" });
         setOtpStatus({ mobile_no: "", otp: "" });
-
         if (
           response.data.is_training_completed &&
           response.data.is_profile_completed &&
           response.data.is_exam_completed &&
-          response.data.s_agreement_signed &&
-          response.data.is_approved
+          response.data.is_agreement_signed
         ) {
-          navigate("/dashboard");
-        } else if (
-          response.data.is_training_completed &&
-          response.data.is_profile_completed &&
-          response.data.is_exam_completed &&
-          response.data.s_agreement_signed
-        ) {
-          navigate("/dashboard-pending");
+          navigate(
+            response.data.is_approved ? "/dashboard" : "/dashboard-pending"
+          );
         } else {
           navigate("/incomplete");
         }
       } else {
-        const response = await axios.post(`${apiUrl}/posp/register`, {
+        const response = await axios.post(`${apiUrl}/posp/register `, {
           full_name: isSingup.full_name,
           mobile_no: isSingup.mobile_no,
           email: isSingup.email,
@@ -138,7 +154,7 @@ function AuthForm() {
       console.error("OTP Verification Failed:", error);
     }
   };
-
+  //return Values
   return (
     <div className="container my-5">
       <div className="d-flex justify-content-center mb-4">
@@ -193,17 +209,34 @@ function AuthForm() {
                 <label htmlFor="floatingOTP">OTP</label>
               </div>
             )}
-            <div className="d-flex justify-content-between">
-              <button
-                className="btn btn-outline-warning px-4"
-                onClick={handleSendOtp}
-              >
-                Send OTP
-              </button>
-              <button className="btn btn-success px-4" onClick={handleSubmit}>
-                Login
-              </button>
-            </div>
+            {showinput ? (
+              <div className="d-flex justify-content-between">
+                <button
+                  className="btn btn-outline-warning px-4"
+                  onClick={handleSubmit}
+                >
+                  Submit
+                </button>
+                <button
+                  className="btn btn-link text-decoration-none"
+                  onClick={handleSendOtp}
+                  disabled={isResendDisabled}
+                >
+                  {isResendDisabled
+                    ? `Resend OTP in ${counter}s`
+                    : "Resend OTP"}
+                </button>
+              </div>
+            ) : (
+              <div className="d-flex justify-content-between">
+                <button
+                  className="btn btn-outline-warning px-4"
+                  onClick={handleSendOtp}
+                >
+                  Send OTP
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <>
